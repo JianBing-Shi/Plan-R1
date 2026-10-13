@@ -7,6 +7,7 @@ from utils import transform_point_to_local_coordinate
 from utils import drop_edge_between_samples
 
 class ProgressReward(nn.Module):
+    # 导航进度奖励函数，计算ego车辆的行驶进度与专家轨迹的行驶进度的比值
     def __init__(self, num_historical_intervals=4, interval=5, progress_threshold=2.0):
         self.progress_threshold = progress_threshold
         self.interval = interval

@@ -12,6 +12,7 @@ from utils import compute_angles_lengths_2D
 
 
 class ObstacleCollisionReward(nn.Module):
+    # 静态障碍物的碰撞奖励函数，计算ego车辆与静态障碍物的碰撞情况
     def __init__(self, num_historical_intervals=4, threshold=0.0):
         self.threshold = threshold
         self.num_historical_intervals = num_historical_intervals

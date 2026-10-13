@@ -8,6 +8,7 @@ from utils import compute_corner_positions
 from utils import drop_edge_between_samples
 
 class TTCReward(nn.Module):
+    # TTC奖励函数，计算ego车辆与周围车辆的碰撞时间是否在安全范围内
     def __init__(self, long_threshold=0.0, lat_threshold=0.0, num_historical_intervals=4, least_min_ttc=0.95, time_span_per_interval=0.5):
         self.long_threshold = long_threshold
         self.lat_threshold = lat_threshold

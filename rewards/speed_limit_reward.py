@@ -4,6 +4,7 @@ import torch.nn as nn
 from utils import wrap_angle
 
 class SpeedLimitReward(nn.Module):
+    # 超速奖励函数，计算ego车辆是否超速
     def __init__(self, time_span_per_interval=0.5, num_historical_intervals=4, max_overspeed_value_threshold=2.23):
         self.time_span_per_interval = time_span_per_interval
         self.num_historical_intervals = num_historical_intervals

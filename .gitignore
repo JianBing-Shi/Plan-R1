@@ -1,0 +1,24 @@
+# editor settings
+.idea
+.vscode
+
+# datasets file
+
+# onnx models
+*.onnx
+
+# checkpoint files
+*.ckpt
+
+# python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+pycache/
+
+# tools file
+tools/
+
+# log file
+lightning_logs/

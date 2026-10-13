@@ -14,6 +14,10 @@ from utils import transform_point_to_local_coordinate
 from utils import move_dict_to_device
 
 class Backbone(nn.Module):
+    # 驾驶场景中的agent具有三个同时存在的关系：
+    # 每个 agent 自身的属性（车辆尺寸、agent类型、agent身份（自车或者其他参与者））
+    # 同一个 agent 在不同时间戳上的运动
+    # 不同 agent 之间的空间交互
     def __init__(self,
                  token_dict: Dict,
                  num_tokens: int,
@@ -40,19 +44,25 @@ class Backbone(nn.Module):
         self.num_heads = num_heads
         self.dropout = dropout
 
-        self._agent_types = ['Vehicle', 'Pedestrian', 'Bicycle']
-        self._agent_type_embs = nn.Embedding(len(self._agent_types), hidden_dim)
-        self._identity_types = ['Ego', 'Agent']
-        self._identity_type_embs = nn.Embedding(len(self._identity_types), hidden_dim)
+        self._agent_types = ['Vehicle', 'Pedestrian', 'Bicycle']                            # 定义了三种代理类型：车辆、行人和自行车
+        self._agent_type_embs = nn.Embedding(len(self._agent_types), hidden_dim)            # 定义了一个嵌入层，用于将代理类型映射到隐藏维度的向量表示
+        self._identity_types = ['Ego', 'Agent']                                             # 定义了两种身份类型：自我（Ego）和代理（Agent）
+        self._identity_type_embs = nn.Embedding(len(self._identity_types), hidden_dim)      # 定义了一个嵌入层，用于将身份类型映射到隐藏维度的向量表示
 
+        # agent 编码层
         self.agent_emb_layer = TwoLayerMLP(input_dim=4, hidden_dim=hidden_dim, output_dim=hidden_dim)
 
+        # agent 类型编码层
         self.token_emb_vehicle = nn.Embedding(num_tokens, hidden_dim)
         self.token_emb_pedestrian = nn.Embedding(num_tokens, hidden_dim)
         self.token_emb_bicycle = nn.Embedding(num_tokens, hidden_dim)
 
         self.fusion_layer = TwoLayerMLP(input_dim=hidden_dim * 2, hidden_dim=hidden_dim, output_dim=hidden_dim)
 
+        # k: 动作token; g: 地图polygon; t: 时间维度; a: agent维度
+        # k2k_t：同一个 agent 不同时间步之间
+        # g2k：地图 polygon 到 agent token
+        # k2k_a：同一时间步不同 agent
         self.k2k_t_emb_layer = TwoLayerMLP(input_dim=6, hidden_dim=hidden_dim, output_dim=hidden_dim)
         self.g2k_emb_layer = TwoLayerMLP(input_dim=6, hidden_dim=hidden_dim, output_dim=hidden_dim)
         self.k2k_a_emb_layer = TwoLayerMLP(input_dim=5, hidden_dim=hidden_dim, output_dim=hidden_dim)
@@ -84,7 +94,7 @@ class Backbone(nn.Module):
         k_embs = self.fusion_layer(torch.cat([a_embs.unsqueeze(1).expand(-1, num_intervals, -1), a_token_embs], dim=-1)).reshape(-1, self.hidden_dim)   #[(N1,...,Nb)*T,D]
 
         # edge embedding
-        # k2k_t
+        # k2k_t 同一个 agent 的不同时间步建模时间关系和历史运动变化
         k2k_t_position = data['agent']['recon_position'].reshape(-1, 2)     #[(N1,...,Nb)*T,2]
         k2k_t_heading = data['agent']['recon_heading'].reshape(-1)          #[(N1,...,Nb)*T]
         k2k_t_valid_mask = data['agent']['recon_valid_mask'].clone()        #[(N1,...,Nb),T]
@@ -99,7 +109,7 @@ class Backbone(nn.Module):
         k2k_t_edge_attr_input = torch.stack([k2k_t_edge_attr_length, torch.cos(k2k_t_edge_attr_theta), torch.sin(k2k_t_edge_attr_theta), torch.cos(k2k_t_edge_attr_heading), torch.sin(k2k_t_edge_attr_heading), k2k_t_edge_attr_interval], dim=-1)
         k2k_t_edge_attr_embs = self.k2k_t_emb_layer(input=k2k_t_edge_attr_input)
 
-        # g2k
+        # g2k 地图 polygon → agent token将道路和地图环境信息传给 agent
         g2k_position_g = data['polygon']['position']                                    #[(M1,...,Mb),2]
         g2k_position_k = data['agent']['recon_position'].reshape(-1, 2)                 #[(N1,...,Nb)*T,2]
         g2k_heading_g = data['polygon']['heading']                                      #[(M1,...,Mb)]
@@ -117,7 +127,7 @@ class Backbone(nn.Module):
         g2k_edge_attr_input = torch.stack([g2k_edge_attr_length, torch.cos(g2k_edge_attr_theta), torch.sin(g2k_edge_attr_theta), torch.cos(g2k_edge_attr_heading), torch.sin(g2k_edge_attr_heading), g2k_edge_attr_heading_valid_mask], dim=-1)
         g2k_edge_attr_embs = self.g2k_emb_layer(input=g2k_edge_attr_input)
 
-        # k2k_a
+        # k2k_a 不同 agent 的同一时间步建模车辆、行人、自车之间的空间交互
         k2k_a_position = data['agent']['recon_position'].transpose(0, 1).reshape(-1, 2)     #[T*(N1,...,Nb),2]
         k2k_a_heading = data['agent']['recon_heading'].transpose(0, 1).reshape(-1)          #[T*(N1,...,Nb)]
         k2k_a_valid_mask = data['agent']['recon_valid_mask'].transpose(0, 1)                #[T, (N1,...,Nb)]
@@ -132,6 +142,7 @@ class Backbone(nn.Module):
         k2k_a_edge_attr_embs = self.k2k_a_emb_layer(input=k2k_a_edge_attr_input)
 
         # attention
+        # 时间交互 → 地图交互 → agent 交互
         for i in range(self.num_attn_layers):
             # k2k_t
             k_embs = self.k2k_t_attn_layers[i](x=k_embs, edge_index=k2k_t_edge_index, edge_attr=k2k_t_edge_attr_embs)
@@ -146,6 +157,7 @@ class Backbone(nn.Module):
         return k_embs
 
     def pre_inference(self, data: Batch) -> torch.Tensor:
+        # 每条轨迹计算一次，输入为历史轨迹数据，输出为每个agent的静态特征，在历史时间戳上的token隐藏表示；主要用于初始化静态agent特征和历史token表示
         device = data['agent']['infer_position'].device
         self.token_dict = move_dict_to_device(self.token_dict, device)
 
@@ -170,6 +182,7 @@ class Backbone(nn.Module):
         return a_embs, k_embs_dict
 
     def inference(self, data: Batch, g_embs: torch.Tensor, a_embs: torch.Tensor, k_embs_dict: Dict) -> torch.Tensor:
+        # 每个未来时间戳计算一次，输入为 当前推理状态和上一时刻token，输出为每个agent的动态特征，在当前时间戳上的token隐藏表示；主要用于更新动态agent特征和当前token表示
         device = data['agent']['position'].device
         num_agents, num_intervals, _ = data['agent']['infer_position'].size()   #[(N1,...,Nb),T,2]
         self.token_dict = move_dict_to_device(self.token_dict, device)

@@ -126,10 +126,10 @@ class NuplanDataset(Dataset):
         self.val_file_names = torch.load(os.path.join(self.root, 'nuplan-v1.1', 'splits', f"{self.dir}-processed_file_names-{self.mode}-val-PlanR1.pt"))
                 
         if self.parallel:
-            batch_size = 50
+            batch_size = 15
             process_map(self.process_batch_scenario, 
                         [scenarios[i:i+batch_size] for i in range(0, len(scenarios), batch_size)],
-                        max_workers=100, 
+                        max_workers=16,
                         chunksize=1)
         else:
             for scenario in tqdm(scenarios):
@@ -182,7 +182,10 @@ class NuplanDataset(Dataset):
         return HeteroData(torch.load(self.processed_paths[idx]))
 
 if __name__ == '__main__':
-    NuplanDataset(root='../nuplan/dataset/', dir='train', split='train', mode='plan', num_total_scenarios=100000)
-    NuplanDataset(root='../nuplan/dataset/', dir='train', split='val', mode='plan', num_total_scenarios=100000)
-    NuplanDataset(root='../nuplan/dataset/', dir='train', split='train', mode='pred', num_total_scenarios=1000000)
-    NuplanDataset(root='../nuplan/dataset/', dir='train', split='val', mode='pred', num_total_scenarios=1000000)
+    root = '../datasets/nuplan/dataset/'
+    # NuplanDataset(root=root, dir='train', split='train', mode='pred', num_total_scenarios=1000000)
+    # NuplanDataset(root=root, dir='train', split='val', mode='pred', num_total_scenarios=1000000)
+    # NuplanDataset(root=root, dir='mini', split='train', mode='plan', num_total_scenarios=100000)
+    # NuplanDataset(root=root, dir='mini', split='val', mode='plan', num_total_scenarios=100000)
+    NuplanDataset(root=root, dir='train', split='train', mode='plan', num_total_scenarios=100000)
+    NuplanDataset(root=root, dir='train', split='val', mode='plan', num_total_scenarios=100000)

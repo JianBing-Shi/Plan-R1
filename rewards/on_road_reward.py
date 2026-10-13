@@ -12,6 +12,7 @@ from utils import compute_angles_lengths_2D
 
 
 class OnRoadReward(nn.Module):
+    # 道路内行驶奖励函数，计算ego车辆是否在道路内行驶
     def __init__(self, num_historical_intervals=4, threshold=0.0):
         self.threshold = threshold
         self.num_historical_intervals = num_historical_intervals

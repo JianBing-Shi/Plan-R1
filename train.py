@@ -1,5 +1,5 @@
 from argparse import ArgumentParser
-
+import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
@@ -15,6 +15,7 @@ PROJECT_ROOT = os.path.dirname(CURRENT_FILE_PATH)
 os.environ["PROJECT_ROOT"] = PROJECT_ROOT
 
 if __name__ == '__main__':
+    torch.set_float32_matmul_precision('medium')
     pl.seed_everything(1024, workers=True)
 
     parser = ArgumentParser()
@@ -29,18 +30,20 @@ if __name__ == '__main__':
     else:
         print("No checkpoint path provided, initializing a new model.")
         model = PlanR1(**config['model'])
-    
+
+    # 定义数据模块
     datamodule = NuplanDataModule(**config['datamodule'])
-    model_checkpoint = ModelCheckpoint(**config['trainer']['ckpt'])
-    lr_monitor = LearningRateMonitor(**config['trainer']['lr_monitor'])
-    csv_logger = CSVLogger(**config['trainer']['csv_logger'])
+    # 定义训练模块
+    model_checkpoint = ModelCheckpoint(**config['trainer']['ckpt'])     # 模型**保存**回调函数，在Plan-R1中保存验证集上reward最优的模型权重
+    lr_monitor = LearningRateMonitor(**config['trainer']['lr_monitor']) # 学习率监控回调函数
+    csv_logger = CSVLogger(**config['trainer']['csv_logger'])           # 日志记录器
     trainer = pl.Trainer(
-        strategy=config['trainer']['strategy'],
-        devices=config['trainer']['devices'],
-        accelerator=config['trainer']['accelerator'],
-        callbacks=[model_checkpoint, lr_monitor],
-        max_epochs=config['trainer']['max_epochs'],
-        logger=csv_logger
+        strategy=config['trainer']['strategy'],             # 分布式训练策略
+        devices=config['trainer']['devices'],               # 使用的设备数量
+        accelerator=config['trainer']['accelerator'],       # 使用的加速器类型
+        callbacks=[model_checkpoint, lr_monitor],           # 回调函数列表，包括模型保存和学习率监控
+        max_epochs=config['trainer']['max_epochs'],         # 最大训练轮数
+        logger=csv_logger                                   # 日志记录器
     )
 
     trainer.fit(model, datamodule)

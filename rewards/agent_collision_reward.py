@@ -9,6 +9,7 @@ from utils import drop_edge_between_samples
 
 
 class AgentCollisionReward(nn.Module):
+    # 动态障碍物的碰撞奖励函数，计算ego车辆与周围车辆的碰撞情况
     def __init__(self, num_historical_intervals=4, long_threshold=0.0, lat_threshold=0.0):
         self.num_historical_intervals = num_historical_intervals
         self.long_threshold = long_threshold
@@ -33,6 +34,7 @@ class AgentCollisionReward(nn.Module):
         num_ego = ego_index.size(0)
         device = batch.device
 
+        # 自车ego车辆位置
         ego_pos = pos[ego_index].transpose(0, 1).reshape(-1, 2)     # [T*Num_ego, 2]
         ego_yaw = yaw[ego_index].transpose(0, 1).reshape(-1)        # [T*Num_ego]
         ego_mask = mask[ego_index].transpose(0, 1)                  # [T, Num_ego]
@@ -43,6 +45,7 @@ class AgentCollisionReward(nn.Module):
         ego_right = box[ego_index, 3].unsqueeze(0).expand(T, -1).reshape(-1)    # [T*Num_ego]
         ego_corner_pos = corner_pos[ego_index].transpose(0, 1).reshape(-1, 4, 2)    # [T*Num_ego, 4, 2]
 
+        # 它车车辆位置
         agent_pos = pos.transpose(0, 1).reshape(-1, 2)    # [T*Num, 2]
         agent_yaw = yaw.transpose(0, 1).reshape(-1)    # [T*Num]
         agent_mask = mask.transpose(0, 1)    # [T, Num]
@@ -58,6 +61,7 @@ class AgentCollisionReward(nn.Module):
         self_mask = ego_index.unsqueeze(-1) != torch.arange(N, device=device).unsqueeze(0)    # [1, Num_ego, Num]
         edge_mask = edge_mask & self_mask.unsqueeze(0)    # [T, Num_ego, Num]
 
+        # 自车与它车的碰撞检测
         ego_in_agent_edge_index = dense_to_sparse(edge_mask)[0]    # [2, E]
         if ego_in_agent_edge_index.size(1) == 0:
             return torch.zeros(num_ego, T, device=device, dtype=torch.bool), torch.ones(num_ego, T, device=device)

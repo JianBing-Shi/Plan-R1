@@ -81,6 +81,11 @@ class PlanR1(pl.LightningModule):
         self.speed_limit_reward_weight = speed_limit_reward_weight
         self.progress_reward_weight = progress_reward_weight
 
+        # nuplan主要包含真实车辆行驶日志、地图、传感器数据和场景标注。
+        # BackBone主要处理 agent类型和尺寸、历史agent轨迹信息
+        # MapEncoder主要处理 道路地图拓扑，交通信号灯，限速，路线信息
+        # token_builder主要处理 历史轨迹和未来轨迹标签token化
+        
         # pred model
         self.pred_backbone = Backbone(
             token_dict=self.token_dict,
@@ -125,14 +130,14 @@ class PlanR1(pl.LightningModule):
         )
         self.plan_decoder_head = TwoLayerMLP(input_dim=hidden_dim, hidden_dim=hidden_dim, output_dim=num_tokens)
 
-        # metric
+        # metric 指标
         self.cls_loss = nn.CrossEntropyLoss(label_smoothing=0.1)
         self.token_cls_acc = TokenClsAcc()
         self.min_joint_ade = minJointADE()
         self.min_joint_fde = minJointFDE()
         self.reward = CumulativeReward()
 
-        # reward
+        # reward 奖励函数
         self.on_road_reward = OnRoadReward()
         self.agent_collision_reward = AgentCollisionReward()
         self.obstacle_collision_reward = ObstacleCollisionReward()
@@ -143,7 +148,8 @@ class PlanR1(pl.LightningModule):
         self.ttc_reward = TTCReward()
 
     def training_step(self, data: Batch) -> None:
-        if self.mode == 'pred':
+        # 根据模式选择训练步骤
+        if self.mode == 'pred':     # 预测模式
             # pred token and reward
             polygon_embs = self.pred_map_encoder(data=data) 
             feat = self.pred_backbone(data=data, g_embs=polygon_embs)
@@ -156,7 +162,7 @@ class PlanR1(pl.LightningModule):
             self.log('train_cls_loss', cls_loss, prog_bar=True, on_step=True, on_epoch=True, batch_size=1, sync_dist=True)
             return cls_loss
         
-        elif self.mode == 'plan':
+        elif self.mode == 'plan':   # 规划模式
             advantages, pred_logps, plan_logps, rewards, valid_mask = self.rollout(data)
 
             ratio = (plan_logps - plan_logps.detach()).exp()
@@ -175,12 +181,13 @@ class PlanR1(pl.LightningModule):
             return loss
 
     def pred_inference(self, data: Batch):
-        map_encoder = self.pred_map_encoder
-        backbone = self.pred_backbone
-        decoder_head = self.pred_decoder_head
+        # 预测推理
+        map_encoder = self.pred_map_encoder                             # 地图编码器
+        backbone = self.pred_backbone                                   # 预测骨干网络
+        decoder_head = self.pred_decoder_head                           # 预测解码头
 
-        polygon_embs = map_encoder(data=data)
-        agent_embs, k_embs_dict = backbone.pre_inference(data=data)
+        polygon_embs = map_encoder(data=data)                           # 地图编码器生成的多边形嵌入
+        agent_embs, k_embs_dict = backbone.pre_inference(data=data)     # 预测骨干网络的预推理，生成代理嵌入和关键嵌入字典
 
         for _ in range(self.num_future_intervals):
             k_embs_dict, k_embs_step = backbone.inference(data=data, g_embs=polygon_embs, a_embs=agent_embs, k_embs_dict=k_embs_dict)
@@ -189,13 +196,14 @@ class PlanR1(pl.LightningModule):
 
             data = self.transition(data, action_step)
 
-        position = data['agent']['infer_position'][:, self.num_historical_intervals:]
-        heading = data['agent']['infer_heading'][:, self.num_historical_intervals:]
-        valid_mask = data['agent']['infer_valid_mask'][:, self.num_historical_intervals:]
+        position = data['agent']['infer_position'][:, self.num_historical_intervals:]       # 获取预测的他车位置，从历史间隔之后开始
+        heading = data['agent']['infer_heading'][:, self.num_historical_intervals:]         # 获取预测的他车朝向，从历史间隔之后开始
+        valid_mask = data['agent']['infer_valid_mask'][:, self.num_historical_intervals:]   # 获取预测的有效掩码，从历史间隔之后开始
 
         return data, position, heading, valid_mask
 
     def plan_inference(self, data: Batch):
+        # 规划推理
         ego_index = data['agent']['ptr'][:-1]
 
         pred_polygon_embs = self.pred_map_encoder(data=data)
@@ -223,6 +231,7 @@ class PlanR1(pl.LightningModule):
         return data, position, heading, valid_mask
 
     def validation_step(self, data: Batch, batch_idx: int) -> None:
+        # 根据模式选择验证步骤
         if self.mode == 'pred':
             # pred token and reward
             polygon_embs = self.pred_map_encoder(data=data) 
@@ -273,6 +282,7 @@ class PlanR1(pl.LightningModule):
             p.requires_grad = False
 
     def on_train_start(self):
+        # 在训练开始时，如果模式是规划模式，则将预测模型的权重加载到规划模型中，并冻结预测模型的参数，以便在训练过程中不更新它们。
         if self.mode == 'plan':
             self.plan_map_encoder.load_state_dict(self.pred_map_encoder.state_dict())
             self.plan_backbone.load_state_dict(self.pred_backbone.state_dict())
@@ -280,6 +290,7 @@ class PlanR1(pl.LightningModule):
             self.freeze_pred_model()
 
     def transition(self, data, action):
+        # 根据动作更新数据
         next_data = data.clone()
 
         next_data['agent']['infer_token'] = torch.cat([next_data['agent']['infer_token'], action.unsqueeze(1)], dim=1)
@@ -305,6 +316,7 @@ class PlanR1(pl.LightningModule):
         return next_data
         
     def rollout(self, data):
+        # 在环境中执行一个完整的序列
         # copy data
         data_list = data.to_data_list()
         data_list_copy = deepcopy(data_list)
@@ -348,6 +360,8 @@ class PlanR1(pl.LightningModule):
         return advantages, pred_logps, plan_logps, rewards, valid_mask
     
     def compute_ae_outcome_supervision(self, rewards):
+        # 每条完整轨迹视为一个整体，计算每条轨迹的奖励均值和标准差，并使用这些统计量来归一化奖励，从而得到优势函数。
+        # rewards: [B, T]，其中B是批量大小，T是时间步数
         # group computation
         rewards_reshape = rewards.view(self.num_samples, -1)
         rewards_mean = rewards_reshape.mean(dim=0)
@@ -359,6 +373,8 @@ class PlanR1(pl.LightningModule):
         return advantages
     
     def compute_ae_process_supervision(self, rewards, valid_mask):
+        # 按时间步分配奖励，计算每个时间步的奖励均值，并使用这些均值来归一化奖励，从而得到优势函数。
+        # rewards: [B, T]，其中B是批量大小，T是时间步数
         B, T = rewards.shape
 
         rewards_reshape = rewards.view(self.num_samples, -1, T).transpose(0, 1)
@@ -388,6 +404,7 @@ class PlanR1(pl.LightningModule):
         return advantages
 
     def reward_fn(self, data):
+        # 奖励函数计算
         # progress reward
         agent_collision_done, agent_collision_reward = self.agent_collision_reward(data)
         obstacle_collision_done, obstacle_collision_reward = self.obstacle_collision_reward(data)
@@ -415,6 +432,7 @@ class PlanR1(pl.LightningModule):
         return reward, done, valid_mask
     
     def configure_optimizers(self):
+        # 配置优化器和学习率调度器
         decay = set()
         no_decay = set()
         whitelist_weight_modules = (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.MultiheadAttention, nn.LSTM,

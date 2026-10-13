@@ -4,6 +4,7 @@ import torch.nn as nn
 from utils import wrap_angle
 
 class ComfortReward(nn.Module):
+    # 舒适性奖励函数，计算ego车辆的加速度和角速度是否在舒适范围内
     def __init__(self, time_span_per_interval=0.5, num_historical_intervals=4):
         self.time_span_per_interval = time_span_per_interval
         self.num_historical_intervals = num_historical_intervals

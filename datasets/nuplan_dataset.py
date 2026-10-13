@@ -127,10 +127,10 @@ class NuplanDataset(Dataset):
         self.val_file_names = torch.load(os.path.join(self.root, 'nuplan-v1.1', 'splits', f"{self.dir}-processed_file_names-{self.mode}-val-PlanR1.pt"))
                 
         if self.parallel:
-            batch_size = 50
+            batch_size = 15
             process_map(self.process_batch_scenario, 
                         [scenarios[i:i+batch_size] for i in range(0, len(scenarios), batch_size)],
-                        max_workers=100, 
+                        max_workers=16,
                         chunksize=1)
         else:
             for scenario in tqdm(scenarios):

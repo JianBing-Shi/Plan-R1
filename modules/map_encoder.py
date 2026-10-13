@@ -12,7 +12,14 @@ from utils import transform_point_to_local_coordinate
 from utils import generate_reachable_matrix
 
 class MapEncoder(nn.Module):
-
+    # 地图信息编码器
+    # 输入:
+    #   polyline节点信息
+    #   polygon节点信息
+    #   polyline 到 polygon 的连接
+    #   polygon 之间的拓扑连接
+    # 输出:
+    #   polygon节点的隐藏表示
     def __init__(self,
                  hidden_dim: int,
                  num_hops:int, 
@@ -24,21 +31,22 @@ class MapEncoder(nn.Module):
         self.num_heads = num_heads
         self.dropout = dropout
 
-        self._polygon_types = ['LANE', 'CROSSWALK', 'DRIVABLE_AREA_SEGMENT','STATIC_OBJECT']
+        self._polygon_types = ['LANE', 'CROSSWALK', 'DRIVABLE_AREA_SEGMENT','STATIC_OBJECT']        # 道路类型: 车道、斑马线、可行驶区域、静态物体
         self._polygon_embs = nn.Embedding(len(self._polygon_types), hidden_dim)
-        # self._polyline_types = ['CENTERLINE', 'BOUNDARY']
+        # self._polyline_types = ['CENTERLINE', 'BOUNDARY']                                         # 道路边界类型: 中心线、边界线
         # self._polyline_embs = nn.Embedding(len(self._polyline_types), hidden_dim)
-        self._traffic_light_types = ['GREEN', 'YELLOW', 'RED', 'UNKNOWN', 'NONE']
+        self._traffic_light_types = ['GREEN', 'YELLOW', 'RED', 'UNKNOWN', 'NONE']                   # 交通信号灯类型: 绿灯、黄灯、红灯、未知、无
         self._traffic_light_type_embs = nn.Embedding(len(self._traffic_light_types), hidden_dim)
-        self._route_types = ['YES', 'NO']
+        self._route_types = ['YES', 'NO']                                                           # 路线类型: 是、否
         self._route_embs = nn.Embedding(len(self._route_types), hidden_dim)
 
+        # l: polyline地图几何线段, g: polygon带语义的地图单元
         self.l_emb_layer = TwoLayerMLP(input_dim=1, hidden_dim=hidden_dim, output_dim=hidden_dim)
         self.g_emb_layer = TwoLayerMLP(input_dim=2 , hidden_dim=hidden_dim, output_dim=hidden_dim)
 
         self.l2g_emb_layer = TwoLayerMLP(input_dim=5, hidden_dim=hidden_dim, output_dim=hidden_dim)
         self.g2g_emb_layer = TwoLayerMLP(input_dim=8, hidden_dim=hidden_dim, output_dim=hidden_dim)
-        self._g2g_edge_types = ['LEFT', 'RIGHT', 'INCOMING', 'OUTGOING']
+        self._g2g_edge_types = ['LEFT', 'RIGHT', 'INCOMING', 'OUTGOING']                            # g2g边类型: 左、右、入、出
 
         self.l2g_attn_layer = GraphAttention(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout, has_edge_attr=True, if_self_attention=False)
         self.g2g_attn_layer = GraphAttention(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout, has_edge_attr=True, if_self_attention=True)
@@ -57,7 +65,7 @@ class MapEncoder(nn.Module):
         g_embs = g_embs + self._polygon_embs.weight[data['polygon']['type'].long()]        #[(M1,...,Mb),D]
 
         # edge
-        # l2g
+        # l2g   polyline -> polygon
         l2g_position_l = data['polyline']['position']                     #[(m1,...,mb),2]
         l2g_heading_l = data['polyline']['heading']                       #[(m1,...,mb)]
         l2g_position_g = data['polygon']['position']                      #[(M1,...,Mb),2]
@@ -69,7 +77,7 @@ class MapEncoder(nn.Module):
         l2g_edge_attr_input = torch.stack([l2g_edge_attr_length, torch.cos(l2g_edge_attr_theta), torch.sin(l2g_edge_attr_theta), torch.cos(l2g_edge_attr_heading), torch.sin(l2g_edge_attr_heading)], dim=-1)
         l2g_edge_attr_embs = self.l2g_emb_layer(input = l2g_edge_attr_input)
 
-        # g2g
+        # g2g   polygon -> polygon
         g2g_position = data['polygon']['position']                         #[(M1,...,Mb),2]
         g2g_heading = data['polygon']['heading']                           #[(M1,...,Mb)]
         g2g_edge_index = []
