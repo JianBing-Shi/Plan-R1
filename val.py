@@ -1,5 +1,9 @@
 from argparse import ArgumentParser
 
+import matplotlib
+matplotlib.use("Agg")
+
+import torch
 import pytorch_lightning as pl
 
 from datasets import NuplanDataset
@@ -9,6 +13,7 @@ from model import PlanR1
 from utils import load_config
 
 if __name__ == '__main__':
+    torch.set_float32_matmul_precision('medium')
     pl.seed_everything(1024, workers=True)
 
     parser = ArgumentParser()

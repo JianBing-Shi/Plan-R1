@@ -317,6 +317,7 @@ class PlanR1(pl.LightningModule):
         
     def rollout(self, data):
         # 在环境中执行一个完整的序列
+        # 不直接计算普通的监督学习标签，而是为 rollout 生成的候选轨迹提供策略优化信号。
         # copy data
         data_list = data.to_data_list()
         data_list_copy = deepcopy(data_list)
@@ -406,28 +407,39 @@ class PlanR1(pl.LightningModule):
     def reward_fn(self, data):
         # 奖励函数计算
         # progress reward
-        agent_collision_done, agent_collision_reward = self.agent_collision_reward(data)
-        obstacle_collision_done, obstacle_collision_reward = self.obstacle_collision_reward(data)
-        on_road_done, on_road_reward = self.on_road_reward(data)
-        done = agent_collision_done | obstacle_collision_done | on_road_done
+        # 结果奖励
+        # 导致轨迹终止的条件，即发生碰撞
+        agent_collision_done, agent_collision_reward = self.agent_collision_reward(data)            # 计算agent碰撞奖励和是否需要终止
+        obstacle_collision_done, obstacle_collision_reward = self.obstacle_collision_reward(data)   # 计算障碍物碰撞奖励和是否需要终止
+        on_road_done, on_road_reward = self.on_road_reward(data)                                    # 计算是否在道路上奖励和是否需要终止
+        done = agent_collision_done | obstacle_collision_done | on_road_done                        # 是否终止奖励函数
 
-        valid_mask = (~done).float().cumprod(dim=1).bool()
-        valid_mask = torch.cat([torch.ones(done.size(0), 1, device=done.device, dtype=torch.bool), valid_mask[:, :-1]], dim=1)
-
-        comfort_reward = self.comfort_reward(data)
-        ttc_reward = self.ttc_reward(data)
+        # 计算有效掩码，表示在每个时间戳之前是否已经完成，并在第一列增加True的标识，以确保在终止时间戳之前的所有时间戳都是有效的
+        # 终止发生的当前时间戳仍然有效，终止发生后的时间戳无效
+        # 有效掩码用于哪些时间戳继续参与 advantage 和 loss 计算
+        # 这样设计通常是为了让碰撞或越界发生的那个动作仍然参与训练，让模型知道“这个动作导致了终止”；但终止之后不存在真实有效的继续轨迹，因此后续时间步不参与计算。
+        # 时间步       t0     t1     t2     t3     t4
+        # 事件         安全   安全   碰撞   已终止  已终止
+        # done         0      0      1      1      1
+        # valid_mask   1      1      1      0      0
+        valid_mask = (~done).float().cumprod(dim=1).bool()                                          
+        valid_mask = torch.cat([torch.ones(done.size(0), 1, device=done.device, dtype=torch.bool), valid_mask[:, :-1]], dim=1)  # 
 
         # outcome reward
-        progress_reward = self.progress_reward(data)
-        speed_limit_reward = self.speed_limit_reward(data)
-        progress_reward = progress_reward.unsqueeze(1).expand(-1, self.num_future_intervals) 
-        speed_limit_reward = speed_limit_reward.unsqueeze(1).expand(-1, self.num_future_intervals)
+        # 过程奖励
+        comfort_reward = self.comfort_reward(data)  # 计算舒适性奖励
+        ttc_reward = self.ttc_reward(data)          # 计算时间到碰撞奖励，这是为了预留足够的时间来避免碰撞，鼓励车辆保持安全距离
+        progress_reward = self.progress_reward(data)                                                # 计算进度奖励，鼓励车辆尽快到达目的地，减少行驶时间，逐时间戳奖励
+        speed_limit_reward = self.speed_limit_reward(data)                                          # 计算限速奖励
+        # progress_reward = progress_reward.unsqueeze(1).expand(-1, self.num_future_intervals)        # 将总进度奖励扩展到未来时间间隔的维度
+        # speed_limit_reward = speed_limit_reward.unsqueeze(1).expand(-1, self.num_future_intervals)  # 将总限速奖励扩展到未来时间间隔的维度
 
         reward = on_road_reward * obstacle_collision_reward * agent_collision_reward * (
                  self.comfort_reward_weight * comfort_reward + 
                  self.ttc_reward_weight * ttc_reward + 
                  self.speed_limit_reward_weight * speed_limit_reward + 
-                 self.progress_reward_weight * progress_reward) / (self.comfort_reward_weight + self.ttc_reward_weight + self.speed_limit_reward_weight + self.progress_reward_weight)
+                 self.progress_reward_weight * progress_reward) / (
+                 self.comfort_reward_weight + self.ttc_reward_weight + self.speed_limit_reward_weight + self.progress_reward_weight)
 
         return reward, done, valid_mask
     

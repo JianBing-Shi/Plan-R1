@@ -22,3 +22,9 @@ tools/
 
 # log file
 lightning_logs/
+
+# visualization file
+visualization/
+
+# exp file
+exp/
